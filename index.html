@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hardstyle 3D Visualizer</title>
+    <style>
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background: #000;
+        }
+        #youtube-player {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 100;
+            opacity: 0.7;
+        }
+    </style>
+</head>
+<body>
+    <!-- YouTube iframe (скрытый) -->
+    <iframe 
+        id="youtube-player"
+        width="85%" 
+        height="85%" 
+        src="https://www.youtube.com/embed/HPGVyuccGrM?autoplay=1&enablejsapi=1" 
+        frameborder="0" 
+        allow="accelerometer; autoplay; encrypted-media; gyroscope"
+        allowfullscreen>
+    </iframe>
+
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/controls/OrbitControls.js"></script>
+    <script>
+        // 1. Инициализация Three.js
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // 2. Настройка освещения
+        const light = new THREE.DirectionalLight(0xffffff, 1);
+        light.position.set(1, 1, 2);
+        scene.add(light);
+        scene.add(new THREE.AmbientLight(0xffffff, 0.3));
+
+        // 3. Создание 3D-секторов
+        const sectors = [];
+        const h = 0.4, r1 = 1.0, r2 = 1.5, angle = 60 * Math.PI/180;
+
+        function createSector(color) {
+            const shape = new THREE.Shape();
+            shape.absarc(0, 0, r2, 0, angle, false);
+            shape.lineTo(r1 * Math.cos(angle), r1 * Math.sin(angle));
+            shape.absarc(0, 0, r1, angle, 0, true);
+            shape.lineTo(r2, 0);
+
+            const geometry = new THREE.ExtrudeGeometry(shape, { depth: h, bevelEnabled: false });
+            const material = new THREE.MeshPhongMaterial({ 
+                color, 
+                emissive: color, 
+                emissiveIntensity: 0.3,
+                shininess: 90 
+            });
+            return new THREE.Mesh(geometry, material);
+        }
+
+        // Расположение 6 секторов по кругу
+        for (let i = 0; i < 6; i++) {
+            const sector = createSector(new THREE.Color().setHSL(i/6, 1, 0.5));
+            sector.rotation.z = i * (Math.PI/3);
+            sector.position.set(
+                (r1 + 0.5) * Math.cos(i * (Math.PI/3) + angle/2),
+                (r1 + 0.5) * Math.sin(i * (Math.PI/3) + angle/2),
+                h/2
+            );
+            scene.add(sector);
+            sectors.push(sector);
+        }
+
+        camera.position.z = 5;
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+
+        // 4. Анализ звука через Web Audio API
+        let audioContext, analyser, dataArray;
+        const initAudio = () => {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            analyser = audioContext.createAnalyser();
+            analyser.fftSize = 256;
+
+            // Создаем скрытый аудиоэлемент из YouTube
+            const audioElement = document.createElement('audio');
+            audioElement.crossOrigin = "anonymous";
+            audioElement.src = document.getElementById('youtube-player').src;
+            const source = audioContext.createMediaElementSource(audioElement);
+            source.connect(analyser);
+            analyser.connect(audioContext.destination);
+            
+            dataArray = new Uint8Array(analyser.frequencyBinCount);
+        };
+
+        // 5. Анимация с реакцией на звук
+        const animate = () => {
+            requestAnimationFrame(animate);
+            controls.update();
+
+            if (analyser) {
+                analyser.getByteFrequencyData(dataArray);
+                const bass = dataArray[10] / 255; // Низкие частоты (кики)
+                const mid = dataArray[100] / 255; // Средние (мелодия)
+
+                sectors.forEach((sector, i) => {
+                    // Пульсация под бас
+                    sector.scale.set(1, 1 + bass * 0.5, 1);
+                    
+                    // Изменение цвета под мелодию
+                    const hue = (i/6 + mid * 0.1) % 1;
+                    sector.material.color.setHSL(hue, 1, 0.5);
+                    sector.material.emissive.setHSL(hue, 1, 0.2);
+                });
+            }
+
+            renderer.render(scene, camera);
+        };
+
+        // Запуск при готовности YouTube API
+        window.onYouTubeIframeAPIReady = () => {
+            initAudio();
+            animate();
+        };
+
+        // Ресайз
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth/window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+    <!-- YouTube API -->
+    <script src="https://www.youtube.com/iframe_api"></script>
+</body>
+</html>
